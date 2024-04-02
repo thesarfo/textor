@@ -767,3 +767,28 @@ int editorOpen(char *filename) {
     E.dirty = 0;
     return 0;
 }
+
+/* Save the current file on disk. Return 0 on success, 1 on error. */
+int editorSave(void) {
+    int len;
+    char *buf = editorRowsToString(&len);
+    int fd = open(E.filename,O_RDWR|O_CREAT,0644);
+    if (fd == -1) goto writeerr;
+
+    /* Use truncate + a single write(2) call in order to make saving
+     * a bit safer, under the limits of what we can do in a small editor. */
+    if (ftruncate(fd,len) == -1) goto writeerr;
+    if (write(fd,buf,len) != len) goto writeerr;
+
+    close(fd);
+    free(buf);
+    E.dirty = 0;
+    editorSetStatusMessage("%d bytes written on disk", len);
+    return 0;
+
+writeerr:
+    free(buf);
+    if (fd != -1) close(fd);
+    editorSetStatusMessage("Can't save! I/O error: %s",strerror(errno));
+    return 1;
+}
