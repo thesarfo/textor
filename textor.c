@@ -1044,7 +1044,7 @@ void editorFind(int fd) {
     }
 }
 
-* ========================= Editor events handling  ======================== */
+/* ========================= Editor events handling  ======================== */
 
 /* Handle cursor position change because arrow keys were pressed. */
 void editorMoveCursor(int key) {
