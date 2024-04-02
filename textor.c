@@ -661,3 +661,109 @@ void editorInsertChar(int c) {
         E.cx++;
     E.dirty++;
 }
+
+/* Inserting a newline is slightly complex as we have to handle inserting a
+ * newline in the middle of a line, splitting the line as needed. */
+void editorInsertNewline(void) {
+    int filerow = E.rowoff+E.cy;
+    int filecol = E.coloff+E.cx;
+    erow *row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
+
+    if (!row) {
+        if (filerow == E.numrows) {
+            editorInsertRow(filerow,"",0);
+            goto fixcursor;
+        }
+        return;
+    }
+    /* If the cursor is over the current line size, we want to conceptually
+     * think it's just over the last character. */
+    if (filecol >= row->size) filecol = row->size;
+    if (filecol == 0) {
+        editorInsertRow(filerow,"",0);
+    } else {
+        /* We are in the middle of a line. Split it between two rows. */
+        editorInsertRow(filerow+1,row->chars+filecol,row->size-filecol);
+        row = &E.row[filerow];
+        row->chars[filecol] = '\0';
+        row->size = filecol;
+        editorUpdateRow(row);
+    }
+fixcursor:
+    if (E.cy == E.screenrows-1) {
+        E.rowoff++;
+    } else {
+        E.cy++;
+    }
+    E.cx = 0;
+    E.coloff = 0;
+}
+
+/* Delete the char at the current prompt position. */
+void editorDelChar() {
+    int filerow = E.rowoff+E.cy;
+    int filecol = E.coloff+E.cx;
+    erow *row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
+
+    if (!row || (filecol == 0 && filerow == 0)) return;
+    if (filecol == 0) {
+        /* Handle the case of column 0, we need to move the current line
+         * on the right of the previous one. */
+        filecol = E.row[filerow-1].size;
+        editorRowAppendString(&E.row[filerow-1],row->chars,row->size);
+        editorDelRow(filerow);
+        row = NULL;
+        if (E.cy == 0)
+            E.rowoff--;
+        else
+            E.cy--;
+        E.cx = filecol;
+        if (E.cx >= E.screencols) {
+            int shift = (E.screencols-E.cx)+1;
+            E.cx -= shift;
+            E.coloff += shift;
+        }
+    } else {
+        editorRowDelChar(row,filecol-1);
+        if (E.cx == 0 && E.coloff)
+            E.coloff--;
+        else
+            E.cx--;
+    }
+    if (row) editorUpdateRow(row);
+    E.dirty++;
+}
+
+/* Load the specified program in the editor memory and returns 0 on success
+ * or 1 on error. */
+int editorOpen(char *filename) {
+    FILE *fp;
+
+    E.dirty = 0;
+    free(E.filename);
+    size_t fnlen = strlen(filename)+1;
+    E.filename = malloc(fnlen);
+    memcpy(E.filename,filename,fnlen);
+
+    fp = fopen(filename,"r");
+    if (!fp) {
+        if (errno != ENOENT) {
+            perror("Opening file");
+            exit(1);
+        }
+        return 1;
+    }
+
+    char *line = NULL;
+    size_t linecap = 0;
+    ssize_t linelen;
+    while((linelen = getline(&line,&linecap,fp)) != -1) {
+        if (linelen && (line[linelen-1] == '\n' || line[linelen-1] == '\r'))
+            line[--linelen] = '\0';
+        editorInsertRow(E.numrows,line,linelen);
+    }
+    free(line);
+    fclose(fp);
+    E.dirty = 0;
+    return 0;
+}
